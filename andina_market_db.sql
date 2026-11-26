@@ -19,7 +19,8 @@ CREATE TABLE Direccion (
     linea_direccion VARCHAR(255) NOT NULL,
     referencia VARCHAR(255),
     es_principal BOOLEAN NOT NULL DEFAULT FALSE,
-    FOREIGN KEY (cliente_id) REFERENCES Cliente(cliente_id) ON DELETE CASCADE
+    FOREIGN KEY (cliente_id) REFERENCES Cliente(cliente_id) ON DELETE CASCADE,
+    UNIQUE KEY uk_direccion_cliente (direccion_id, cliente_id)
 );
 
 CREATE TABLE Categoria (
@@ -37,7 +38,9 @@ CREATE TABLE Producto (
     stock INT NOT NULL DEFAULT 0,
     activo BOOLEAN NOT NULL DEFAULT TRUE,
     fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (categoria_id) REFERENCES Categoria(categoria_id)
+    FOREIGN KEY (categoria_id) REFERENCES Categoria(categoria_id),
+    CHECK (precio > 0),
+    CHECK (stock >= 0)
 );
 
 CREATE TABLE Carrito (
@@ -53,17 +56,20 @@ CREATE TABLE Carrito_Detalle (
     cantidad INT NOT NULL,
     PRIMARY KEY (carrito_id, producto_id),
     FOREIGN KEY (carrito_id) REFERENCES Carrito(carrito_id) ON DELETE CASCADE,
-    FOREIGN KEY (producto_id) REFERENCES Producto(producto_id)
+    FOREIGN KEY (producto_id) REFERENCES Producto(producto_id),
+    CHECK (cantidad>0)
 );
 
 CREATE TABLE Pedido (
     pedido_id INT AUTO_INCREMENT PRIMARY KEY,
     cliente_id INT NOT NULL,
     direccion_id INT NOT NULL,
+    fecha_pedido DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     estado ENUM('pendiente','confirmado','enviado','entregado','cancelado') NOT NULL DEFAULT 'pendiente',
     total DECIMAL(10,2) NOT NULL DEFAULT 0.00,
     FOREIGN KEY (cliente_id) REFERENCES Cliente(cliente_id),
-    FOREIGN KEY (direccion_id) REFERENCES Direccion(direccion_id)
+    -- La direccion debe pertenecer al mismo cliente del pedido
+    FOREIGN KEY (direccion_id, cliente_id) REFERENCES Direccion(direccion_id, cliente_id)
 );
 
 CREATE TABLE Pedido_Detalle (
@@ -73,7 +79,9 @@ CREATE TABLE Pedido_Detalle (
     precio_unitario DECIMAL(10,2) NOT NULL,
     PRIMARY KEY (pedido_id, producto_id),
     FOREIGN KEY (pedido_id) REFERENCES Pedido(pedido_id) ON DELETE CASCADE,
-    FOREIGN KEY (producto_id) REFERENCES Producto(producto_id)
+    FOREIGN KEY (producto_id) REFERENCES Producto(producto_id),
+    CHECK (cantidad>0),
+    CHECK (precio_unitario>0)
 );
 
 CREATE TABLE Pago (
@@ -84,7 +92,8 @@ CREATE TABLE Pago (
     estado ENUM('pendiente','aprobado','rechazado','reembolsado') NOT NULL DEFAULT 'pendiente',
     tipo_pago ENUM('tarjeta','yape_plin','transferencia','contraentrega') NOT NULL,
     FOREIGN KEY (pedido_id) REFERENCES Pedido(pedido_id),
-    UNIQUE KEY uk_pago_pedido (pedido_id)
+    UNIQUE KEY uk_pago_pedido (pedido_id),
+    CHECK (monto > 0)
 );
 
 CREATE TABLE Pago_Tarjeta (
@@ -121,7 +130,7 @@ CREATE TABLE Pago_Contraentrega (
 
 CREATE TABLE Envio (
     envio_id INT AUTO_INCREMENT PRIMARY KEY,
-    pedido_id INT NOT NULL,
+    pedido_id INT NOT NULL UNIQUE,
     empresa_transporte VARCHAR(100),
     estado ENUM('preparando','en_transito','entregado','fallido') NOT NULL DEFAULT 'preparando',
     FOREIGN KEY (pedido_id) REFERENCES Pedido(pedido_id) ON DELETE CASCADE
@@ -134,7 +143,9 @@ CREATE TABLE Resena (
     calificacion TINYINT NOT NULL,
     comentario TEXT,
     FOREIGN KEY (cliente_id) REFERENCES Cliente(cliente_id) ON DELETE CASCADE,
-    FOREIGN KEY (producto_id) REFERENCES Producto(producto_id) ON DELETE CASCADE
+    FOREIGN KEY (producto_id) REFERENCES Producto(producto_id) ON DELETE CASCADE,
+    UNIQUE (cliente_id, producto_id),
+    CHECK (calificacion BETWEEN 1 AND 5)
 );
 
 INSERT INTO Cliente (nombre, apellido, email, telefono) VALUES
@@ -169,10 +180,10 @@ INSERT INTO Direccion (cliente_id, departamento, provincia, distrito, linea_dire
 (4, 'Lima', 'Lima', 'Barranco', 'Jr. Unión 654', TRUE),
 (5, 'La Libertad', 'Trujillo', 'Trujillo', 'Av. España 987', TRUE);
 
-INSERT INTO Pedido (cliente_id, direccion_id, estado, total) VALUES
-(1, 1, 'confirmado', 300.00),
-(2, 3, 'confirmado', 249.90),
-(3, 4, 'pendiente', 65.00);
+INSERT INTO Pedido (cliente_id, direccion_id, fecha_pedido, estado, total) VALUES
+(1, 1, '2026-10-05 10:30:00', 'entregado', 300.00),
+(2, 3, '2026-11-10 14:20:00', 'entregado', 249.90),
+(3, 4, '2026-11-20 16:45:00', 'pendiente', 65.00);
 
 INSERT INTO Pedido_Detalle (pedido_id, producto_id, cantidad, precio_unitario) VALUES
 (1, 1, 1, 180.00),
@@ -189,9 +200,28 @@ INSERT INTO Pago_Tarjeta (pago_id, titular_nombre, ultimos_4_digitos, marca_tarj
 INSERT INTO Pago (pedido_id, monto, estado, tipo_pago) VALUES
 (2, 249.90, 'aprobado', 'yape_plin');
 INSERT INTO Pago_YapePlin (pago_id, telefono_origen, codigo_operacion, plataforma) VALUES
-(2, '912345678', 'YAP-20250510-001', 'yape');
+(2, '912345678', 'YAP-20261110-001', 'yape');
 
 INSERT INTO Pago (pedido_id, monto, estado, tipo_pago) VALUES
 (3, 65.00, 'pendiente', 'contraentrega');
 INSERT INTO Pago_Contraentrega (pago_id, monto_recibido, fecha_entrega_real) VALUES
 (3, NULL, NULL);
+
+INSERT INTO Resena (cliente_id, producto_id, calificacion, comentario) VALUES
+(1, 1, 5, 'Excelente calidad y acabado artesanal'),
+(1, 2, 4, 'Muy bonito diseño'),
+(1, 9, 5, 'Buen material y presentación'),
+(2, 5, 5, 'Excelente sonido y funcionamiento');
+
+INSERT INTO Envio (pedido_id, empresa_transporte, estado) VALUES
+(1, 'Olva Courier', 'entregado'),
+(2, 'Shalom', 'entregado');
+
+INSERT INTO Carrito (cliente_id, estado) VALUES
+(4, 'activo'),
+(5, 'activo');
+
+INSERT INTO Carrito_Detalle (carrito_id, producto_id, cantidad) VALUES
+(1, 6, 2),
+(1, 7, 1),
+(2, 3, 1);
