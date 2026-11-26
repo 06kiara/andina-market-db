@@ -221,6 +221,16 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Error: el carrito esta vacio';
     END IF;
 
+    -- Se copian primero los productos y precios a una tabla temporal.
+    -- Así el INSERT de abajo no lee la tabla Producto, y el trigger que
+    -- descuenta el stock puede actualizarla (si no, MySQL da el error 1442).
+    DROP TEMPORARY TABLE IF EXISTS tmp_items_carrito;
+    CREATE TEMPORARY TABLE tmp_items_carrito AS
+        SELECT cd.producto_id, cd.cantidad, p.precio
+        FROM Carrito_Detalle cd
+        INNER JOIN Producto p ON cd.producto_id = p.producto_id
+        WHERE cd.carrito_id = v_carrito_id;
+
     START TRANSACTION;
 
     INSERT INTO Pedido (cliente_id, direccion_id, estado, total)
@@ -230,13 +240,13 @@ BEGIN
 
     -- Los triggers validan el stock y lo descuentan
     INSERT INTO Pedido_Detalle (pedido_id, producto_id, cantidad, precio_unitario)
-    SELECT p_pedido_id, cd.producto_id, cd.cantidad, p.precio
-    FROM Carrito_Detalle cd
-    INNER JOIN Producto p ON cd.producto_id = p.producto_id
-    WHERE cd.carrito_id = v_carrito_id;
+    SELECT p_pedido_id, producto_id, cantidad, precio
+    FROM tmp_items_carrito;
 
     UPDATE Carrito SET estado = 'convertido' WHERE carrito_id = v_carrito_id;
 
     COMMIT;
+
+    DROP TEMPORARY TABLE IF EXISTS tmp_items_carrito;
 END //
 DELIMITER ;
